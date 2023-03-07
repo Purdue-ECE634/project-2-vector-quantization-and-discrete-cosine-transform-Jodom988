@@ -37,8 +37,8 @@ part2a_boat:
 part2a_baboon:
 	python3 part2.py a ../sample_image/baboon.png
 
-part2a_sails:
-	python3 part2.py a ../sample_image/sails.png
+part2a_airplane:
+	python3 part2.py a ../sample_image/airplane.png
 
 part2b_boat:
 	python3 part2.py b ../sample_image/boat.png
@@ -46,5 +46,9 @@ part2b_boat:
 part2b_baboon:
 	python3 part2.py b ../sample_image/baboon.png
 
-part2b_sails:
-	python3 part2.py b ../sample_image/sails.png
+part2b_airplane:
+	python3 part2.py b ../sample_image/airplane.png
+
+
+clean:
+	rm tmpFigs/*.png

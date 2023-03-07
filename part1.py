@@ -7,6 +7,7 @@ from common import *
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+from tqdm import tqdm
 
 import random
 
@@ -26,33 +27,35 @@ def distance_squared(point1, point2):
     dist = (point2 - point1) ** 2
     return np.sum(dist)
 
-def assign_points_to_centroids_multithreaded(points, centroids, num_threads = 8):
+def assign_points_to_centroids_multithreaded(points, centroids, num_threads = 16):
     ''' Returns list of points of len(points) where each element is the index of the centroid that the point is closest to
         Points: List of np arrays
         Centroids: List of np arrays
     '''
-    print("Assigning points to centroids")
-
-    def assign_point_to_centroid(point_idxes, points, centroids, rtn_list):
+    def assign_point_rng_to_centroid(point_idxes, points, centroids, rtn_list):
         rtn_list.append(list())
         rtn_list.append(list())
-        closest = -1
+        
         for point_idx in point_idxes:
-            for j in range(len(centroids)):
-                if closest == -1 or distance_squared(points[point_idx], centroids[j]) < distance_squared(points[point_idx], centroids[closest]):
-                    closest = j
+            closest_idx = -1
+            closest_dist = -1
+            for curr_centroid in range(len(centroids)):
+                dist = distance_squared(points[point_idx], centroids[curr_centroid])
+                if closest_idx == -1 or dist < closest_dist:
+                    closest_idx = curr_centroid
+                    closest_dist = dist
 
             rtn_list[0].append(point_idx)
-            rtn_list[1].append(closest)
+            rtn_list[1].append(closest_idx)
 
     threads = list()
-    delta = int(len(points) / num_threads)
-    for i in range(len(points)):
+    delta = int(len(points) / num_threads) + 1
+    for i in range(num_threads):
         rtn_list = list()
         start_idx = i * delta
-        end_idx = min((i + 1) * delta, len(points))
+        end_idx = min( (i + 1) * delta, len(points) )
         rng = range(start_idx, end_idx)
-        t = threading.Thread(target=assign_point_to_centroid, args=(rng, points, centroids, rtn_list))
+        t = threading.Thread(target=assign_point_rng_to_centroid, args=(rng, points, centroids, rtn_list))
         threads.append((t, rtn_list))
 
     #for t, _ in threads:
@@ -68,15 +71,15 @@ def assign_points_to_centroids_multithreaded(points, centroids, num_threads = 8)
         [closest_centroid_idxes.append(closest_centroid_idx) for closest_centroid_idx in tmp_closest_centroid_idx]
 
 
-    # selection sort point_idx
-    for i in range(len(point_idxes)-1):
-        min_idx = i
-        for j in range(i+1, len(point_idxes)):
-            if point_idxes[j] < point_idxes[min_idx]:
-                min_idx = j
+    # # selection sort point_idx
+    # for i in range(len(point_idxes)-1):
+    #     min_idx = i
+    #     for j in range(i+1, len(point_idxes)):
+    #         if point_idxes[j] < point_idxes[min_idx]:
+    #             min_idx = j
 
-        point_idxes[i], point_idxes[min_idx] = point_idxes[min_idx], point_idxes[i]
-        closest_centroid_idxes[i], closest_centroid_idxes[min_idx] = closest_centroid_idxes[min_idx], closest_centroid_idxes[i]
+    #     point_idxes[i], point_idxes[min_idx] = point_idxes[min_idx], point_idxes[i]
+    #     closest_centroid_idxes[i], closest_centroid_idxes[min_idx] = closest_centroid_idxes[min_idx], closest_centroid_idxes[i]
 
 
     for i in range(len(point_idxes)-1):
@@ -92,29 +95,37 @@ def assign_points_to_centroids(points, centroids):
         Points: List of np arrays
         Centroids: List of np arrays
     '''
-    print("Assigning points to centroids")
     closest_centroid_idx = list()
     for i in range(len(points)):
         closest = -1
+        closest_dist = -1
         for j in range(len(centroids)):
-            if closest == -1 or distance_squared(points[i], centroids[j]) < distance_squared(points[i], centroids[closest]):
+            dist = distance_squared(points[i], centroids[j])
+            if closest == -1 or dist < closest_dist:
                 closest = j
+                closest_dist = dist
         
         closest_centroid_idx.append(closest)
 
     return closest_centroid_idx
 
-def get_new_centroids(points, closest_centroid_idx, codebook_size):
-    print("Getting new centroids")
+def get_new_centroids(points, closest_centroid_idx, num_centroids):
     new_centroids = list()
-    for i in range(codebook_size):
+    for i in range(num_centroids):
         curr_sum = np.zeros(points[0].shape)
         count = 0
+
+        curr_group = list()
+
         for j in range(len(points)):
             if closest_centroid_idx[j] == i:
-                curr_sum += points[i]
+                curr_sum += points[j].astype(np.float32)
                 count += 1
+
+                curr_group.append(points[j])
+
         new_centroids.append(curr_sum / count)
+
 
     return new_centroids
 
@@ -151,19 +162,25 @@ def get_codebook(codebook_size, training_img_fpaths):
         starting_centroids.append(training_data[idx])
 
     old_centroids = starting_centroids
-    old_closest_centroid_idx = assign_points_to_centroids(training_data, old_centroids)
-    new_centroids = get_new_centroids(training_data, old_closest_centroid_idx, codebook_size)
-    new_closest_centroid_idx = assign_points_to_centroids(training_data, new_centroids)
+    old_centroid_assignments = assign_points_to_centroids_multithreaded(training_data, old_centroids)
+    new_centroids = None
 
-    while True:
-        if (closest_centroid_idxes_same(old_closest_centroid_idx, new_closest_centroid_idx)):
-            print("Converged!")
+    break_next = False
+    for _ in tqdm(range(20)):
+        new_centroids = get_new_centroids(training_data, old_centroid_assignments, codebook_size)
+        new_centroid_assignments = assign_points_to_centroids_multithreaded(training_data, new_centroids)
+        
+        if break_next:
+            if not (closest_centroid_idxes_same(old_centroid_assignments, new_centroid_assignments)):
+                print("Warning: Thought we converged but didn't")
             break
+        
+        if (closest_centroid_idxes_same(old_centroid_assignments, new_centroid_assignments)):
+            print("Converged!")
+            break_next = True
+        
         old_centroids = new_centroids
-        old_closest_centroid_idx = new_closest_centroid_idx
-
-        new_centroids = get_new_centroids(training_data, old_closest_centroid_idx, codebook_size)
-        new_closest_centroid_idx = assign_points_to_centroids(training_data, new_centroids)
+        old_centroid_assignments = new_centroid_assignments
     
     return new_centroids
 
@@ -197,7 +214,7 @@ def quantize_img(img_fpath, codebook):
     # plt.imshow(img, cmap='gray')
     # plt.show()
 
-    return img, mse_2d(img, original_img)
+    return img, get_psnr(img, original_img, max=255)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -210,7 +227,7 @@ def main():
     args = parser.parse_args()
 
     codebook = get_codebook(args.codebook_size, args.training_imgs)
-    img, mse = quantize_img(args.quantize_img[0], codebook)
+    img, psnr = quantize_img(args.quantize_img[0], codebook)
 
     if args.part == 'a':
         fig, axarr = plt.subplots(1, 2, figsize=(9, 5))
@@ -222,7 +239,7 @@ def main():
         ax.title.set_text("Original Image (Used for Training)")
         ax.imshow(cv2.imread(args.training_imgs[0], 0), cmap='gray')
         ax = axarr[1]
-        ax.title.set_text("Quantized Image (MSE: %.2e dB)" % mse)
+        ax.title.set_text("Quantized Image (PSNR: %.2f)" % psnr)
         ax.imshow(img, cmap='gray')
 
         plt.savefig('figures/part1a-%d-%s.png' % (args.codebook_size, os.path.basename(args.quantize_img[0])))
@@ -237,7 +254,7 @@ def main():
         ax.title.set_text("Original Image")
         ax.imshow(cv2.imread(args.quantize_img[0], 0), cmap='gray')
         ax = axarr[1]
-        ax.title.set_text("Quantized Image (MSE: %.2e dB)" % mse)
+        ax.title.set_text("Quantized Image (PSNR: %.2f)" % psnr)
         ax.imshow(img, cmap='gray')
 
         plt.savefig('figures/part1b-%d-%s.png' % (args.codebook_size, os.path.basename(args.quantize_img[0])))

@@ -34,10 +34,11 @@ def get_basis_vectors():
             basis_vectors.append(ys.flatten())
 
     # plt.imshow(img, cmap='gray')
-    # plt.xticks(np.arange(-0.5, 63.5, 8))
-    # plt.yticks(np.arange(-0.5, 63.5, 8))
+    # plt.xticks(np.arange(-0.5, 63.5, 8), ['' for i in range(8)])
+    # plt.yticks(np.arange(-0.5, 63.5, 8), ['' for i in range(8)])
     # plt.grid()
     # plt.show()
+    # plt.savefig('figures/dct_basis_vectors.png')
 
     basis_vectors = np.array(basis_vectors)
 
@@ -199,7 +200,7 @@ def part_b(img_path):
     coefs_used = list()
     for i in tqdm(range(63, 0, -1)):
         predicted_img = reconstruct_img_with_top_n_coefs(weights, i, original_img.shape)
-        mse = mse_2d(original_img, predicted_img)
+        mse = get_psnr(original_img, predicted_img)
         mses.append(mse)
         coefs_used.append(i)
 
@@ -214,12 +215,12 @@ def part_b(img_path):
 
     ax = axarr[1]
     ax.plot(coefs_used, mses)
-    ax.title.set_text('MSE vs Number of Coefficients Used')
+    ax.title.set_text('PSNR vs Number of Coefficients Used')
     ax.set_xlabel('Number of DCT Coefficients Used')
-    ax.set_ylabel('MSE')
+    ax.set_ylabel('PSNR (dB)')
     ax.axis('on')
 
-    plt.show()
+    plt.savefig('figures/part2b-%s.png' % os.path.basename(img_path))
     
 
 def main():
